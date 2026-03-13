@@ -396,10 +396,12 @@ with st.sidebar:
              "Elements not selected are banned as an NSGA-II constraint.")
 
     required_elements = st.multiselect(
-        "Required elements (at least one must be present)",
+        "Required elements",
         options=allowed_elements if allowed_elements else ELEMENTS,
         default=[],
-        help="At least one of these elements must appear (> 0.005 mol fraction) in every alloy.")
+        help="Optional. If you select any elements here, at least one of them must appear "
+             "(> 0.005 mol fraction) in every optimised alloy. "
+             "Leave empty to impose no requirement — the optimiser will freely choose from the allowed pool.")
 
     # Convert to index lists for the optimiser
     banned_indices   = [ELEMENTS.index(e) for e in ELEMENTS if e not in allowed_elements]
@@ -408,7 +410,9 @@ with st.sidebar:
     if banned_indices:
         st.caption(f"🚫 {len(banned_indices)} element(s) banned: {', '.join(e for e in ELEMENTS if e not in allowed_elements)}")
     if required_indices:
-        st.caption(f"✅ Required (at least one): {', '.join(required_elements)}")
+        st.caption(f"✅ At least one required: {', '.join(required_elements)}")
+    elif not banned_indices:
+        st.caption("No element constraints — all 32 elements allowed freely.")
 
     st.divider()
     pop_size = st.slider("Population Size", 10, 200, 50, 10)
@@ -429,11 +433,17 @@ with st.expander("📊 Model R² performance summary", expanded=False):
         'Pipeline B R²':  [0.921, 0.756, 0.708, 0.617, 0.742, 0.856, 0.598],
         'Features':       ['58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)',
                            '58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration'],
-        'Note':           ['','','','','Electrolyte type matters','Electrolyte type matters','Inherently noisy'],
+        'Note':           ['Strongly influenced by processing route & phase',
+                           'Sensitive to phase structure (FCC vs BCC)',
+                           'Correlates strongly with yield strength',
+                           'Trade-off with strength; phase-dependent',
+                           'Electrolyte type & concentration are key drivers',
+                           'Electrolyte type & concentration are key drivers',
+                           'Inherently noisy; log₁₀-scaled before training'],
     }
     st.dataframe(pd.DataFrame(r2_data), hide_index=True, use_container_width=True)
-    st.caption("Corrosion models: 58 features (32 elem + 7 proc + 15 empirical + 4 phase) "
-               "+ 7 electrolyte one-hot + concentration. PBS and Hanks excluded (n<15). "
+    st.caption("Processing and electrolyte categorical features are encoded via one-hot encoding. "
+               "PBS and Hanks excluded (n<15). "
                "Matches Ghorbani et al. (2025) npj Materials Degradation.")
 
 # ── Run ────────────────────────────────────────────────────────────────────────
