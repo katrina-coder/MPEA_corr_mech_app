@@ -171,9 +171,10 @@ class AlloyProblem(Problem):
         alloys39[:, :32] = raw[:, :32] * self.comp_max + self.comp_min
         n = len(alloys39)
 
-        # Predict phases from composition (using 54-dim, no phase yet) then use as features
-        base54 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32])]) for a in alloys39])
-        phase4 = np.column_stack([self.classifiers[p].predict(base54).astype(float) for p in ['FCC','BCC','HCP','IM']])
+        # Build 58-dim vector with zero phase placeholders, predict phases, then rebuild properly
+        zeros4 = np.zeros(4)
+        base58 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32]), zeros4]) for a in alloys39])
+        phase4 = np.column_stack([self.classifiers[p].predict(base58).astype(float) for p in ['FCC','BCC','HCP','IM']])
         mf = np.array([build_mech_features(alloys39[i], phase4[i]) for i in range(len(alloys39))])
         cf = np.array([build_corr_features(alloys39[i], phase4[i], self.elec_onehot, self.conc_norm) for i in range(len(alloys39))])
 
@@ -207,8 +208,9 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
     alloys39[:, :32] = raw[:, :32] * comp_max + comp_min
     rs = alloys39[:,:32].sum(1,keepdims=True); rs[rs==0]=1; alloys39[:,:32] /= rs
 
-    base54 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32])]) for a in alloys39])
-    phase4 = np.column_stack([classifiers[p].predict(base54).astype(float) for p in ['FCC','BCC','HCP','IM']])
+    zeros4 = np.zeros(4)
+    base58 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32]), zeros4]) for a in alloys39])
+    phase4 = np.column_stack([classifiers[p].predict(base58).astype(float) for p in ['FCC','BCC','HCP','IM']])
     mf = np.array([build_mech_features(alloys39[i], phase4[i]) for i in range(len(alloys39))])
     cf = np.array([build_corr_features(alloys39[i], phase4[i], elec_onehot, conc_norm) for i in range(len(alloys39))])
 
