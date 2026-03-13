@@ -143,8 +143,10 @@ def load_pipeline(model_dir):
 @st.cache_data
 def load_dataset_bounds():
     df = pd.read_excel("MPEAs_Mech_Corr_DB_updated.xlsx")
-    comp = df.iloc[:, 15:54].to_numpy(dtype=float)
-    return np.min(comp, axis=0), np.max(comp, axis=0), df.columns.values[8:15]
+    ELEM_COLS    = ['Ag','Al','B','C','Ca','Co','Cr','Cu','Fe','Ga','Ge','Hf','Li','Mg','Mn','Mo','N','Nb','Nd','Ni','Pd','Re','Sc','Si','Sn','Ta','Ti','V','W','Y','Zn','Zr']
+    PROCESS_COLS = ['process_1','process_2','process_3','process_4','process_5','process_6','process_7']
+    comp = df[ELEM_COLS].to_numpy(dtype=float)
+    return np.min(comp, axis=0), np.max(comp, axis=0), PROCESS_COLS
 
 # ── Optimisation problem ───────────────────────────────────────────────────────
 class AlloyProblem(Problem):
