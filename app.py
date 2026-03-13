@@ -168,17 +168,24 @@ def load_dataset_bounds():
 # ── Optimisation problem ───────────────────────────────────────────────────────
 class AlloyProblem(Problem):
     def __init__(self, objectives, generator, regressors, classifiers,
-                 comp_min, comp_max, elec_onehot, conc_norm, max_elements=10):
-        super().__init__(n_var=10, n_obj=len(objectives), n_ieq_constr=1, xl=-3.0, xu=3.0)
-        self.objectives   = objectives
-        self.generator    = generator
-        self.regressors   = regressors
-        self.classifiers  = classifiers
-        self.comp_min     = comp_min
-        self.comp_max     = comp_max
-        self.elec_onehot  = elec_onehot
-        self.conc_norm    = conc_norm
-        self.max_elements = max_elements
+                 comp_min, comp_max, elec_onehot, conc_norm,
+                 max_elements=10, banned_indices=None, required_indices=None):
+        # n_ieq_constr: 1 (max elements) + 1 per banned element + 1 if required elements
+        n_constr = 1
+        if banned_indices: n_constr += len(banned_indices)
+        if required_indices: n_constr += 1
+        super().__init__(n_var=10, n_obj=len(objectives), n_ieq_constr=n_constr, xl=-3.0, xu=3.0)
+        self.objectives       = objectives
+        self.generator        = generator
+        self.regressors       = regressors
+        self.classifiers      = classifiers
+        self.comp_min         = comp_min
+        self.comp_max         = comp_max
+        self.elec_onehot      = elec_onehot
+        self.conc_norm        = conc_norm
+        self.max_elements     = max_elements
+        self.banned_indices   = banned_indices  or []   # element indices that must be absent
+        self.required_indices = required_indices or []  # element indices that must be present
 
     def _evaluate(self, x, out, *args, **kwargs):
         x_t = torch.tensor(x, dtype=torch.float32)
@@ -217,9 +224,23 @@ class AlloyProblem(Problem):
 
         out['F'] = np.column_stack([get_obj(o) for o in self.objectives])
 
-        # Inequality constraint: n_elements - max_elements <= 0  (G <= 0 is feasible in pymoo)
+        # G1: max elements constraint — n_elements - max_elements <= 0
         n_elements = (alloys39[:, :32] > 0.005).sum(axis=1).astype(float)
-        out['G'] = (n_elements - self.max_elements).reshape(-1, 1)
+        G = [(n_elements - self.max_elements)]
+
+        # G2: banned elements — each banned element fraction must be <= 0.005 (threshold)
+        #     constraint: comp[:, idx] - 0.005 <= 0
+        for idx in self.banned_indices:
+            G.append(alloys39[:, idx] - 0.005)
+
+        # G3: required elements — at least one required element must be present
+        #     constraint: -(max fraction across required elements) + 0.005 <= 0
+        #     i.e. feasible only if at least one required element > 0.005
+        if self.required_indices:
+            max_req = alloys39[:, self.required_indices].max(axis=1)
+            G.append(-max_req + 0.005)
+
+        out['G'] = np.column_stack(G)
 
 
 def decode_results(res_X, generator, comp_min, comp_max, regressors,
@@ -300,9 +321,11 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 
 def run_optimisation(objectives, pop_size, n_gen, seed, generator,
                      regressors, classifiers, comp_min, comp_max,
-                     proc_names, elec_onehot, conc_norm, max_elements=10):
+                     proc_names, elec_onehot, conc_norm,
+                     max_elements=10, banned_indices=None, required_indices=None):
     problem   = AlloyProblem(objectives, generator, regressors, classifiers,
-                              comp_min, comp_max, elec_onehot, conc_norm, max_elements)
+                              comp_min, comp_max, elec_onehot, conc_norm,
+                              max_elements, banned_indices, required_indices)
     algorithm = NSGA2(pop_size=pop_size, mutation=PM(prob=0.1, eta=20))
     res = minimize(problem, algorithm, get_termination("n_gen", n_gen),
                    save_history=False, seed=int(seed), verbose=False)
@@ -365,6 +388,28 @@ with st.sidebar:
         help="Enforced as an NSGA-II inequality constraint — all returned alloys satisfy this. "
              "Training data: 2–10 elements (mean = 5.3). Most reliable range: 4–7.")
 
+    allowed_elements = st.multiselect(
+        "Allowed elements (pool)",
+        options=ELEMENTS,
+        default=ELEMENTS,
+        help="Only elements selected here can appear in optimised alloys. "
+             "Elements not selected are banned as an NSGA-II constraint.")
+
+    required_elements = st.multiselect(
+        "Required elements (at least one must be present)",
+        options=allowed_elements if allowed_elements else ELEMENTS,
+        default=[],
+        help="At least one of these elements must appear (> 0.005 mol fraction) in every alloy.")
+
+    # Convert to index lists for the optimiser
+    banned_indices   = [ELEMENTS.index(e) for e in ELEMENTS if e not in allowed_elements]
+    required_indices = [ELEMENTS.index(e) for e in required_elements]
+
+    if banned_indices:
+        st.caption(f"🚫 {len(banned_indices)} element(s) banned: {', '.join(e for e in ELEMENTS if e not in allowed_elements)}")
+    if required_indices:
+        st.caption(f"✅ Required (at least one): {', '.join(required_elements)}")
+
     st.divider()
     pop_size = st.slider("Population Size", 10, 200, 50, 10)
     n_gen    = st.slider("Generations",     10, 500, 200, 10)
@@ -405,7 +450,8 @@ if run_btn and len(selected_objectives) >= 2:
             progress.progress(10, f"Pipeline A — NSGA-II ({n_gen} generations)…")
             result_A = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                         gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
-                                        elec_onehot, conc_norm, max_elements)
+                                        elec_onehot, conc_norm, max_elements,
+                                        banned_indices, required_indices)
             if result_A is None:
                 st.warning("Pipeline A: No feasible solutions found. Try increasing max elements or generations.")
         except Exception as e:
@@ -417,7 +463,8 @@ if run_btn and len(selected_objectives) >= 2:
             progress.progress(55 if run_A else 10, f"Pipeline B — NSGA-II ({n_gen} generations)…")
             result_B = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                         gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
-                                        elec_onehot, conc_norm, max_elements)
+                                        elec_onehot, conc_norm, max_elements,
+                                        banned_indices, required_indices)
             if result_B is None:
                 st.warning("Pipeline B: No feasible solutions found. Try increasing max elements or generations.")
         except Exception as e:
@@ -428,7 +475,9 @@ if run_btn and len(selected_objectives) >= 2:
     st.session_state.update({'result_A': result_A, 'result_B': result_B,
                               'objectives': selected_objectives,
                               'electrolyte': selected_electrolyte, 'conc': selected_conc,
-                              'max_elements': max_elements})
+                              'max_elements': max_elements,
+                              'allowed_elements': allowed_elements,
+                              'required_elements': required_elements})
 
 # ── Display results ────────────────────────────────────────────────────────────
 if 'result_A' in st.session_state or 'result_B' in st.session_state:
@@ -441,8 +490,14 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
         st.stop()
 
     st.divider()
-    st.info(f"🌊 Results for **{st.session_state.get('electrolyte','')}** "
-            f"at {st.session_state.get('conc','')} M  ·  max {max_el} elements enforced")
+    allowed_el  = st.session_state.get('allowed_elements', ELEMENTS)
+    required_el = st.session_state.get('required_elements', [])
+    banned_el   = [e for e in ELEMENTS if e not in allowed_el]
+    info_parts  = [f"🌊 **{st.session_state.get('electrolyte','')}** at {st.session_state.get('conc','')} M",
+                   f"max **{max_el}** elements"]
+    if banned_el:   info_parts.append(f"🚫 banned: {', '.join(banned_el)}")
+    if required_el: info_parts.append(f"✅ required: {', '.join(required_el)}")
+    st.info("  ·  ".join(info_parts))
 
     # ── Scatter plots ──────────────────────────────────────────────────────────
     st.subheader("📈 Pareto Fronts")
