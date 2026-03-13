@@ -379,11 +379,12 @@ with st.sidebar:
 # ── Model performance table ────────────────────────────────────────────────────
 with st.expander("📊 Model R² performance summary", expanded=False):
     r2_data = {
-        'Property':             ['Hardness','Yield Strength','Tensile','Elongation','Ecorr','Epit','icorr (log₁₀)'],
-        'Pipeline A R²':        [0.802, 0.574, 0.662, 0.525, 0.646, 0.775, 0.451],
-        'Pipeline B R²':        [0.921, 0.756, 0.708, 0.617, 0.742, 0.856, 0.598],
-        'Features (corrosion)': ['—','—','—','—','58+7elec','58+7elec','58+7elec'],
-        'Note':                 ['','','','','Electrolyte type matters','Electrolyte type matters','Inherently noisy'],
+        'Property':       ['Hardness','Yield Strength','Tensile','Elongation','Ecorr','Epit','icorr (log₁₀)'],
+        'Pipeline A R²':  [0.802, 0.574, 0.662, 0.525, 0.646, 0.775, 0.451],
+        'Pipeline B R²':  [0.921, 0.756, 0.708, 0.617, 0.742, 0.856, 0.598],
+        'Features':       ['58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)',
+                           '58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration'],
+        'Note':           ['','','','','Electrolyte type matters','Electrolyte type matters','Inherently noisy'],
     }
     st.dataframe(pd.DataFrame(r2_data), hide_index=True, use_container_width=True)
     st.caption("Corrosion models: 58 features (32 elem + 7 proc + 15 empirical + 4 phase) "
@@ -480,7 +481,8 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
 
         for x_obj, y_obj, title in pairs:
             xk, yk = PROP_KEY[x_obj], PROP_KEY[y_obj]
-            fig, axes = plt.subplots(1, n_pipelines, figsize=(6 * n_pipelines, 4),
+            # Always use the same total figure width (12 in) so single/both plots look the same size
+            fig, axes = plt.subplots(1, n_pipelines, figsize=(12, 4),
                                      sharey=(n_pipelines > 1), squeeze=False)
             axes = axes[0]  # unwrap the row
             for ax, (res, lbl, col) in zip(axes, pipeline_results):
@@ -488,7 +490,9 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
                     ax.scatter(res[xk], res[yk], c=col, alpha=0.7, edgecolors='white', s=60)
                 ax.set_xlabel(xk); ax.set_ylabel(yk)
                 ax.set_title(f"{title} — {lbl}"); ax.grid(True, ls='--', alpha=0.4)
-            plt.tight_layout(); st.pyplot(fig); plt.close(fig)
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=False)
+            plt.close(fig)
 
     # ── Results tables ─────────────────────────────────────────────────────────
     st.divider()
