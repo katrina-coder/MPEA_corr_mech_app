@@ -63,6 +63,23 @@ OBJECTIVE_INFO = {
     'Aluminum Content' : ('maximize','molar ratio'),
 }
 
+# Maps objective name -> results dataframe column (for scatter plots)
+PROP_KEY = {
+    'Tensile Strength' : 'Tensile Strength (MPa)',
+    'Yield Strength'   : 'Yield Strength (MPa)',
+    'Elongation'       : 'Elongation (%)',
+    'Hardness'         : 'Hardness (HV)',
+    'Ecorr'            : 'Ecorr (mV vs SCE)',
+    'Epit'             : 'Epit (mV vs SCE)',
+    'icorr'            : 'icorr (µA/cm²)',
+    'Density'          : 'Density (g/cm³)',
+    'FCC'              : 'FCC probability',
+    'BCC'              : 'BCC probability',
+    'HCP'              : 'HCP probability',
+    'IM'               : 'IM probability',
+    'Aluminum Content' : 'Al molar fraction',
+}
+
 # ── Empirical parameter calculation ───────────────────────────────────────────
 ATOMIC_RADII   = {'Ag':1.44,'Al':1.43,'B':0.87,'C':0.77,'Ca':1.97,'Co':1.25,'Cr':1.28,'Cu':1.28,'Fe':1.26,'Ga':1.22,'Ge':1.22,'Hf':1.59,'Li':1.52,'Mg':1.60,'Mn':1.26,'Mo':1.36,'N':0.75,'Nb':1.43,'Nd':1.82,'Ni':1.24,'Pd':1.37,'Re':1.37,'Sc':1.62,'Si':1.18,'Sn':1.40,'Ta':1.43,'Ti':1.47,'V':1.34,'W':1.37,'Y':1.80,'Zn':1.33,'Zr':1.60}
 MELTING_TEMPS  = {'Ag':1235,'Al':933,'B':2349,'C':3823,'Ca':1115,'Co':1768,'Cr':2180,'Cu':1358,'Fe':1811,'Ga':303,'Ge':1211,'Hf':2506,'Li':454,'Mg':923,'Mn':1519,'Mo':2896,'N':63,'Nb':2750,'Nd':1297,'Ni':1728,'Pd':1828,'Re':3459,'Sc':1814,'Si':1687,'Sn':505,'Ta':3290,'Ti':1941,'V':2183,'W':3695,'Y':1799,'Zn':693,'Zr':2128}
@@ -170,48 +187,53 @@ class AlloyProblem(Problem):
         # Generator outputs 39-dim; comp_min/max cover only the 32 element columns
         alloys39 = raw.copy()
         alloys39[:, :32] = raw[:, :32] * self.comp_max + self.comp_min
-        n = len(alloys39)
 
-        # Build 58-dim vector with zero phase placeholders, predict phases, then rebuild properly
+        # Build 58-dim vector with zero phase placeholders, predict phases, then use properly
         zeros4 = np.zeros(4)
         base58 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32]), zeros4]) for a in alloys39])
         phase4 = np.column_stack([self.classifiers[p].predict(base58).astype(float) for p in ['FCC','BCC','HCP','IM']])
         mf = np.array([build_mech_features(alloys39[i], phase4[i]) for i in range(len(alloys39))])
         cf = np.array([build_corr_features(alloys39[i], phase4[i], self.elec_onehot, self.conc_norm) for i in range(len(alloys39))])
 
-        masses_a  = np.array(MASSES); volumes_a = np.array(VOLUMES)
-        comp32_n  = alloys39[:,:32]; rs = comp32_n.sum(axis=1,keepdims=True); rs[rs==0]=1
-        comp32_n  = comp32_n/rs
-        densities = (comp32_n*masses_a).sum(1)/(comp32_n*volumes_a).sum(1)
+        masses_a = np.array(MASSES); volumes_a = np.array(VOLUMES)
+        comp32_n = alloys39[:, :32].copy()
+        rs = comp32_n.sum(axis=1, keepdims=True); rs[rs == 0] = 1
+        comp32_n = comp32_n / rs
+        densities = (comp32_n * masses_a).sum(1) / (comp32_n * volumes_a).sum(1)
 
         def get_obj(name):
-            if name=='Tensile Strength': return -self.regressors['Tensile Strength'].predict(mf)
-            if name=='Yield Strength':   return -self.regressors['Yield Strength'].predict(mf)
-            if name=='Elongation':       return -self.regressors['Elongation'].predict(mf)
-            if name=='Hardness':         return -self.regressors['Hardness'].predict(mf)
-            if name=='Ecorr':            return -self.regressors['Ecorr'].predict(cf)
-            if name=='Epit':             return -self.regressors['Epit'].predict(cf)
-            if name=='icorr':            return  self.regressors['icorr'].predict(cf)  # log10, minimise
-            if name=='Density':          return densities
-            if name=='Aluminum Content': return -alloys39[:,1]
+            if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(mf)
+            if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(mf)
+            if name == 'Elongation':       return -self.regressors['Elongation'].predict(mf)
+            if name == 'Hardness':         return -self.regressors['Hardness'].predict(mf)
+            if name == 'Ecorr':            return -self.regressors['Ecorr'].predict(cf)
+            if name == 'Epit':             return -self.regressors['Epit'].predict(cf)
+            if name == 'icorr':            return  self.regressors['icorr'].predict(cf)
+            if name == 'Density':          return densities
+            if name == 'Aluminum Content': return -alloys39[:, 1]
             if name in ('FCC','BCC','HCP','IM'):
                 return -self.classifiers[name].predict(mf).astype(float)
+            return np.zeros(len(alloys39))
 
         out['F'] = np.column_stack([get_obj(o) for o in self.objectives])
 
-        # Inequality constraint: n_elements - max_elements <= 0 (pymoo: G <= 0 is feasible)
+        # Inequality constraint: n_elements - max_elements <= 0  (G <= 0 is feasible in pymoo)
         n_elements = (alloys39[:, :32] > 0.005).sum(axis=1).astype(float)
         out['G'] = (n_elements - self.max_elements).reshape(-1, 1)
 
 
 def decode_results(res_X, generator, comp_min, comp_max, regressors,
                    classifiers, proc_names, elec_onehot, conc_norm):
+    # FIX BUG 4: ensure res_X is always 2D for batch generator input
+    res_X = np.atleast_2d(res_X)
+
     x_t = torch.tensor(res_X, dtype=torch.float32)
     with torch.no_grad():
         raw = generator(x_t).numpy()
     alloys39 = raw.copy()
     alloys39[:, :32] = raw[:, :32] * comp_max + comp_min
-    rs = alloys39[:,:32].sum(1,keepdims=True); rs[rs==0]=1; alloys39[:,:32] /= rs
+    rs = alloys39[:, :32].sum(1, keepdims=True); rs[rs == 0] = 1
+    alloys39[:, :32] /= rs
 
     zeros4 = np.zeros(4)
     base58 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32]), zeros4]) for a in alloys39])
@@ -220,27 +242,34 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
     cf = np.array([build_corr_features(alloys39[i], phase4[i], elec_onehot, conc_norm) for i in range(len(alloys39))])
 
     names = []
-    n_elements = []
-    for comp in alloys39[:,:32]:
+    n_elements_list = []
+    al_fractions = []
+    for comp in alloys39[:, :32]:
         parts = [f"{ELEMENTS[j]}{comp[j]:.3f}" for j in range(32) if comp[j] > 0.005]
         names.append("".join(parts))
-        n_elements.append(len(parts))
+        n_elements_list.append(len(parts))
+        al_fractions.append(round(comp[1], 4))   # Al is index 1
 
-    proc_idx = np.argmax(alloys39[:,32:], axis=1)
+    proc_idx = np.argmax(alloys39[:, 32:], axis=1)
     procs = [PROCESS_MAP.get(proc_names[i], "Unknown") for i in proc_idx]
 
     ma  = np.array(MASSES); va = np.array(VOLUMES)
-    c32 = alloys39[:,:32]; c32 /= c32.sum(1,keepdims=True).clip(1e-9)
-    densities = (c32*ma).sum(1)/(c32*va).sum(1)
+    c32 = alloys39[:, :32].copy()
+    c32 /= c32.sum(1, keepdims=True).clip(1e-9)
+    densities = (c32 * ma).sum(1) / (c32 * va).sum(1)
 
-    icorr_vals = 10 ** regressors['icorr'].predict(cf)
+    icorr_vals = np.clip(10 ** regressors['icorr'].predict(cf), 0, 1e6)
     phase_lbls = ['FCC','BCC','HCP','IM']
-    phases = ["+".join([phase_lbls[j] for j in range(4) if phase4[i,j]>0]) or "Unknown"
-              for i in range(len(alloys39))]
+    phases     = ["+".join([phase_lbls[j] for j in range(4) if phase4[i, j] > 0]) or "Unknown"
+                  for i in range(len(alloys39))]
+
+    # FCC/BCC/HCP/IM probabilities stored as columns for scatter plotting
+    fcc_prob = phase4[:, 0]; bcc_prob = phase4[:, 1]
+    hcp_prob = phase4[:, 2]; im_prob  = phase4[:, 3]
 
     return pd.DataFrame({
         'Alloy Composition':      names,
-        'N Elements':             n_elements,
+        'N Elements':             n_elements_list,
         'Processing Method':      procs,
         'Predicted Phase':        phases,
         'Hardness (HV)':          np.round(regressors['Hardness'].predict(mf),        2),
@@ -251,19 +280,30 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
         'Epit (mV vs SCE)':       np.round(regressors['Epit'].predict(cf),            2),
         'icorr (µA/cm²)':         np.round(icorr_vals,                                4),
         'Density (g/cm³)':        np.round(densities,                                 3),
+        'FCC probability':        np.round(fcc_prob,                                  3),
+        'BCC probability':        np.round(bcc_prob,                                  3),
+        'HCP probability':        np.round(hcp_prob,                                  3),
+        'IM probability':         np.round(im_prob,                                   3),
+        'Al molar fraction':      al_fractions,
     })
 
 
 def run_optimisation(objectives, pop_size, n_gen, seed, generator,
                      regressors, classifiers, comp_min, comp_max,
                      proc_names, elec_onehot, conc_norm, max_elements=10):
-    problem     = AlloyProblem(objectives, generator, regressors, classifiers,
-                               comp_min, comp_max, elec_onehot, conc_norm, max_elements)
-    algorithm   = NSGA2(pop_size=pop_size, mutation=PM(prob=0.1, eta=20))
+    problem   = AlloyProblem(objectives, generator, regressors, classifiers,
+                              comp_min, comp_max, elec_onehot, conc_norm, max_elements)
+    algorithm = NSGA2(pop_size=pop_size, mutation=PM(prob=0.1, eta=20))
     res = minimize(problem, algorithm, get_termination("n_gen", n_gen),
                    save_history=False, seed=int(seed), verbose=False)
+
+    # FIX BUG 1: res.X is None when no feasible solutions found
+    if res.X is None:
+        return None
+
     return decode_results(res.X, generator, comp_min, comp_max,
                           regressors, classifiers, proc_names, elec_onehot, conc_norm)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  UI
@@ -312,9 +352,8 @@ with st.sidebar:
     st.divider()
     st.subheader("🧪 Alloy Constraints")
     max_elements = st.slider("Max number of elements", min_value=2, max_value=10, value=7,
-        help="Filter results to alloys with this many constituent elements or fewer. "
-             "Training data range: 2–10 elements (mean = 5.3). "
-             "4–7 elements is the most data-dense region.")
+        help="Enforced as an NSGA-II inequality constraint — all returned alloys satisfy this. "
+             "Training data: 2–10 elements (mean = 5.3). Most reliable range: 4–7.")
 
     st.divider()
     pop_size = st.slider("Population Size", 10, 200, 50, 10)
@@ -330,14 +369,16 @@ with st.sidebar:
 # ── Model performance table ────────────────────────────────────────────────────
 with st.expander("📊 Model R² performance summary", expanded=False):
     r2_data = {
-        'Property':        ['Hardness','Yield Strength','Tensile','Elongation','Ecorr','Epit','icorr (log₁₀)'],
-        'Pipeline A R²':   [0.802, 0.574, 0.662, 0.525, 0.646, 0.775, 0.451],
-        'Pipeline B R²':   [0.921, 0.756, 0.708, 0.617, 0.742, 0.856, 0.598],
+        'Property':             ['Hardness','Yield Strength','Tensile','Elongation','Ecorr','Epit','icorr (log₁₀)'],
+        'Pipeline A R²':        [0.802, 0.574, 0.662, 0.525, 0.646, 0.775, 0.451],
+        'Pipeline B R²':        [0.921, 0.756, 0.708, 0.617, 0.742, 0.856, 0.598],
         'Features (corrosion)': ['—','—','—','—','58+7elec','58+7elec','58+7elec'],
-        'Note': ['','','','','Electrolyte type matters','Electrolyte type matters','Inherently noisy'],
+        'Note':                 ['','','','','Electrolyte type matters','Electrolyte type matters','Inherently noisy'],
     }
     st.dataframe(pd.DataFrame(r2_data), hide_index=True, use_container_width=True)
-    st.caption("Corrosion models include phase (FCC/BCC/HCP/IM) + 7 electrolyte one-hot + concentration. PBS and Hanks excluded (n<15). Matches Ghorbani et al. (2025).")
+    st.caption("Corrosion models: 58 features (32 elem + 7 proc + 15 empirical + 4 phase) "
+               "+ 7 electrolyte one-hot + concentration. PBS and Hanks excluded (n<15). "
+               "Matches Ghorbani et al. (2025) npj Materials Degradation.")
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 if run_btn and len(selected_objectives) >= 2:
@@ -346,18 +387,30 @@ if run_btn and len(selected_objectives) >= 2:
     progress = st.progress(0, "Starting optimisation…")
     result_A = result_B = None
 
+    # FIX BUG 6: wrap each pipeline in try/except for user-friendly error messages
     if run_A:
-        gen_A, reg_A, clf_A = load_pipeline("models_A")
-        progress.progress(10, f"Pipeline A — NSGA-II ({n_gen} generations)…")
-        result_A = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
-                                    gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
-                                    elec_onehot, conc_norm, max_elements)
+        try:
+            gen_A, reg_A, clf_A = load_pipeline("models_A")
+            progress.progress(10, f"Pipeline A — NSGA-II ({n_gen} generations)…")
+            result_A = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
+                                        gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
+                                        elec_onehot, conc_norm, max_elements)
+            if result_A is None:
+                st.warning("Pipeline A: No feasible solutions found. Try increasing max elements or generations.")
+        except Exception as e:
+            st.error(f"Pipeline A failed: {e}")
+
     if run_B:
-        gen_B, reg_B, clf_B = load_pipeline("models_B")
-        progress.progress(55 if run_A else 10, f"Pipeline B — NSGA-II ({n_gen} generations)…")
-        result_B = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
-                                    gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
-                                    elec_onehot, conc_norm, max_elements)
+        try:
+            gen_B, reg_B, clf_B = load_pipeline("models_B")
+            progress.progress(55 if run_A else 10, f"Pipeline B — NSGA-II ({n_gen} generations)…")
+            result_B = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
+                                        gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
+                                        elec_onehot, conc_norm, max_elements)
+            if result_B is None:
+                st.warning("Pipeline B: No feasible solutions found. Try increasing max elements or generations.")
+        except Exception as e:
+            st.error(f"Pipeline B failed: {e}")
 
     progress.progress(100, "Done!")
     progress.empty()
@@ -371,72 +424,94 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
     result_A   = st.session_state.get('result_A')
     result_B   = st.session_state.get('result_B')
     objectives = st.session_state.get('objectives', [])
+    max_el     = st.session_state.get('max_elements', 10)
+
+    if result_A is None and result_B is None:
+        st.stop()
+
     st.divider()
     st.info(f"🌊 Results for **{st.session_state.get('electrolyte','')}** "
-            f"at {st.session_state.get('conc','')} M")
+            f"at {st.session_state.get('conc','')} M  ·  max {max_el} elements enforced")
 
-    # Scatter plots
+    # ── Scatter plots ──────────────────────────────────────────────────────────
     st.subheader("📈 Pareto Fronts")
-    PROP_KEY = {
-        'Tensile Strength':'Tensile Strength (MPa)', 'Yield Strength':'Yield Strength (MPa)',
-        'Elongation':'Elongation (%)', 'Hardness':'Hardness (HV)',
-        'Ecorr':'Ecorr (mV vs SCE)', 'Epit':'Epit (mV vs SCE)',
-        'icorr':'icorr (µA/cm²)', 'Density':'Density (g/cm³)',
-    }
-    mech_o = [o for o in objectives if o in ('Tensile Strength','Yield Strength','Elongation','Hardness')]
-    corr_o = [o for o in objectives if o in ('Ecorr','Epit','icorr')]
-    pairs  = []
-    if len(mech_o)>=2: pairs.append((mech_o[0], mech_o[1], "Mechanical"))
-    if mech_o and corr_o: pairs.append((mech_o[0], corr_o[0], "Mech vs Corrosion"))
-    if len(corr_o)>=2: pairs.append((corr_o[0], corr_o[1], "Corrosion"))
-    if not pairs and len(objectives)>=2: pairs.append((objectives[0], objectives[1], "Objectives"))
 
-    both = result_A is not None and result_B is not None
-    for x_obj, y_obj, title in pairs:
-        xk, yk = PROP_KEY.get(x_obj,x_obj), PROP_KEY.get(y_obj,y_obj)
-        fig, axes = plt.subplots(1, 2 if both else 1, figsize=(12 if both else 6, 4), sharey=True)
-        if not both: axes=[axes]
-        for ax, (res, lbl, col) in zip(axes,
-            [(result_A,"Pipeline A","#1f77b4"),(result_B,"Pipeline B","#ff7f0e")][:2 if both else 1]):
-            if res is not None and xk in res.columns and yk in res.columns:
-                ax.scatter(res[xk], res[yk], c=col, alpha=0.7, edgecolors='white', s=60)
-                ax.set_xlabel(xk); ax.set_ylabel(yk)
-                ax.set_title(f"{title} — {lbl}"); ax.grid(True, ls='--', alpha=0.4)
-        plt.tight_layout(); st.pyplot(fig)
+    # Build all valid axis pairs from selected objectives that have columns in results
+    def get_pairs(objectives, df):
+        """Return (xcol, ycol, title) pairs for objectives that exist in df."""
+        valid = [o for o in objectives if PROP_KEY.get(o) in df.columns]
+        mech_o = [o for o in valid if o in ('Tensile Strength','Yield Strength','Elongation','Hardness')]
+        corr_o = [o for o in valid if o in ('Ecorr','Epit','icorr')]
+        other_o = [o for o in valid if o not in mech_o and o not in corr_o]
+        pairs = []
+        if len(mech_o) >= 2: pairs.append((mech_o[0], mech_o[1], "Mechanical"))
+        if mech_o and corr_o: pairs.append((mech_o[0], corr_o[0], "Mech vs Corrosion"))
+        if len(corr_o) >= 2: pairs.append((corr_o[0], corr_o[1], "Corrosion"))
+        if other_o and valid:
+            base = mech_o[0] if mech_o else corr_o[0] if corr_o else valid[0]
+            for o in other_o:
+                if o != base: pairs.append((base, o, f"{base} vs {o}"))
+        if not pairs and len(valid) >= 2:
+            pairs.append((valid[0], valid[1], "Objectives"))
+        return pairs
 
-    # Results tables
+    ref_df = result_A if result_A is not None else result_B
+    pairs  = get_pairs(objectives, ref_df)
+    both   = result_A is not None and result_B is not None
+
+    if not pairs:
+        st.info("No plottable objective pairs found — select at least 2 objectives with matching result columns.")
+    else:
+        for x_obj, y_obj, title in pairs:
+            xk, yk = PROP_KEY[x_obj], PROP_KEY[y_obj]
+            fig, axes = plt.subplots(1, 2 if both else 1, figsize=(12 if both else 6, 4), sharey=True)
+            if not both: axes = [axes]
+            for ax, (res, lbl, col) in zip(axes,
+                [(result_A,"Pipeline A","#1f77b4"),(result_B,"Pipeline B","#ff7f0e")][:2 if both else 1]):
+                if res is not None and xk in res.columns and yk in res.columns:
+                    ax.scatter(res[xk], res[yk], c=col, alpha=0.7, edgecolors='white', s=60)
+                    ax.set_xlabel(xk); ax.set_ylabel(yk)
+                    ax.set_title(f"{title} — {lbl}"); ax.grid(True, ls='--', alpha=0.4)
+            plt.tight_layout(); st.pyplot(fig)
+
+    # ── Results tables ─────────────────────────────────────────────────────────
     st.divider()
-    max_el = st.session_state.get('max_elements', 10)
 
-    def clean(df):
-        return df.drop(columns=['N Elements']).reset_index(drop=True) if df is not None else None
+    # Columns to hide from the display table (used internally / as scatter data)
+    HIDE_COLS = ['N Elements','FCC probability','BCC probability','HCP probability',
+                 'IM probability','Al molar fraction']
+
+    def display_df(df):
+        """Drop internal columns from display; keep them in the download."""
+        return df.drop(columns=[c for c in HIDE_COLS if c in df.columns]).reset_index(drop=True)
 
     if both:
         t1, t2 = st.tabs(["Pipeline A", "Pipeline B"])
         with t1:
-            st.caption(f"All {len(result_A)} alloys satisfy ≤ {max_el} elements constraint")
-            st.dataframe(clean(result_A), use_container_width=True)
+            st.caption(f"{len(result_A)} alloys · all satisfy ≤ {max_el} elements constraint")
+            st.dataframe(display_df(result_A), use_container_width=True)
         with t2:
-            st.caption(f"All {len(result_B)} alloys satisfy ≤ {max_el} elements constraint")
-            st.dataframe(clean(result_B), use_container_width=True)
+            st.caption(f"{len(result_B)} alloys · all satisfy ≤ {max_el} elements constraint")
+            st.dataframe(display_df(result_B), use_container_width=True)
     elif result_A is not None:
         st.subheader(f"Pipeline A — {len(result_A)} alloys")
         st.caption(f"All alloys satisfy ≤ {max_el} elements constraint")
-        st.dataframe(clean(result_A), use_container_width=True)
+        st.dataframe(display_df(result_A), use_container_width=True)
     elif result_B is not None:
-        st.caption(f"Showing alloys with ≤ {max_el} elements — {len(res_B_disp)} of {len(result_B)} alloys")
-        st.subheader(f"Pipeline B — {len(res_B_disp)} alloys")
-        st.dataframe(res_B_disp, use_container_width=True)
-    st.caption("ℹ️ Training database contains alloys with 2–10 elements (mean = 5.3). "
-               "Predictions are most reliable in the 4–7 element range.")
+        st.subheader(f"Pipeline B — {len(result_B)} alloys")
+        st.caption(f"All alloys satisfy ≤ {max_el} elements constraint")
+        st.dataframe(display_df(result_B), use_container_width=True)
 
-    # Download
+    st.caption("ℹ️ Training database: 2–10 elements (mean 5.3). "
+               "Predictions most reliable in the 4–7 element range.")
+
+    # ── Download (includes all columns) ───────────────────────────────────────
     st.divider()
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as w:
         if result_A is not None: result_A.to_excel(w, sheet_name='Pipeline_A', index=False)
         if result_B is not None: result_B.to_excel(w, sheet_name='Pipeline_B', index=False)
-        pd.DataFrame(r2_data if 'r2_data' in dir() else {}).to_excel(w, sheet_name='Model_R2', index=False)
+        pd.DataFrame(r2_data).to_excel(w, sheet_name='Model_R2', index=False)
     buf.seek(0)
     st.download_button("⬇️ Download Excel (all results)", data=buf,
                        file_name="MPEA_mech_corr_optimised.xlsx",
