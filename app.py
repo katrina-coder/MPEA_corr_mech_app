@@ -260,12 +260,22 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 
     icorr_vals = np.clip(10 ** regressors['icorr'].predict(cf), 0, 1e6)
     phase_lbls = ['FCC','BCC','HCP','IM']
-    phases     = ["+".join([phase_lbls[j] for j in range(4) if phase4[i, j] > 0]) or "Unknown"
-                  for i in range(len(alloys39))]
 
-    # FCC/BCC/HCP/IM probabilities stored as columns for scatter plotting
-    fcc_prob = phase4[:, 0]; bcc_prob = phase4[:, 1]
-    hcp_prob = phase4[:, 2]; im_prob  = phase4[:, 3]
+    # Get probabilities for display and scatter (predict_proba[:,1] = probability of presence)
+    phase_proba = np.column_stack([classifiers[p].predict_proba(base58)[:, 1] for p in phase_lbls])
+    fcc_prob = phase_proba[:, 0]; bcc_prob = phase_proba[:, 1]
+    hcp_prob = phase_proba[:, 2]; im_prob  = phase_proba[:, 3]
+
+    # Phase label: list all phases predicted present (binary); if none, use highest-probability phase
+    phases = []
+    for i in range(len(alloys39)):
+        present = [phase_lbls[j] for j in range(4) if phase4[i, j] > 0]
+        if present:
+            phases.append("+".join(present))
+        else:
+            # Fallback: pick the phase with highest predicted probability
+            best = int(np.argmax(phase_proba[i]))
+            phases.append(f"{phase_lbls[best]} (dominant)")
 
     return pd.DataFrame({
         'Alloy Composition':      names,
@@ -462,17 +472,23 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
     if not pairs:
         st.info("No plottable objective pairs found — select at least 2 objectives with matching result columns.")
     else:
+        # Build the list of (result, label, colour) for pipelines that actually ran
+        pipeline_results = []
+        if result_A is not None: pipeline_results.append((result_A, "Pipeline A", "#1f77b4"))
+        if result_B is not None: pipeline_results.append((result_B, "Pipeline B", "#ff7f0e"))
+        n_pipelines = len(pipeline_results)
+
         for x_obj, y_obj, title in pairs:
             xk, yk = PROP_KEY[x_obj], PROP_KEY[y_obj]
-            fig, axes = plt.subplots(1, 2 if both else 1, figsize=(12 if both else 6, 4), sharey=True)
-            if not both: axes = [axes]
-            for ax, (res, lbl, col) in zip(axes,
-                [(result_A,"Pipeline A","#1f77b4"),(result_B,"Pipeline B","#ff7f0e")][:2 if both else 1]):
-                if res is not None and xk in res.columns and yk in res.columns:
+            fig, axes = plt.subplots(1, n_pipelines, figsize=(6 * n_pipelines, 4),
+                                     sharey=(n_pipelines > 1), squeeze=False)
+            axes = axes[0]  # unwrap the row
+            for ax, (res, lbl, col) in zip(axes, pipeline_results):
+                if xk in res.columns and yk in res.columns:
                     ax.scatter(res[xk], res[yk], c=col, alpha=0.7, edgecolors='white', s=60)
-                    ax.set_xlabel(xk); ax.set_ylabel(yk)
-                    ax.set_title(f"{title} — {lbl}"); ax.grid(True, ls='--', alpha=0.4)
-            plt.tight_layout(); st.pyplot(fig)
+                ax.set_xlabel(xk); ax.set_ylabel(yk)
+                ax.set_title(f"{title} — {lbl}"); ax.grid(True, ls='--', alpha=0.4)
+            plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     # ── Results tables ─────────────────────────────────────────────────────────
     st.divider()
