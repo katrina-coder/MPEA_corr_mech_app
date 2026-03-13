@@ -151,16 +151,17 @@ def load_dataset_bounds():
 # ── Optimisation problem ───────────────────────────────────────────────────────
 class AlloyProblem(Problem):
     def __init__(self, objectives, generator, regressors, classifiers,
-                 comp_min, comp_max, elec_onehot, conc_norm):
-        super().__init__(n_var=10, n_obj=len(objectives), xl=-3.0, xu=3.0)
-        self.objectives  = objectives
-        self.generator   = generator
-        self.regressors  = regressors
-        self.classifiers = classifiers
-        self.comp_min    = comp_min
-        self.comp_max    = comp_max
-        self.elec_onehot = elec_onehot   # (9,) fixed during optimisation
-        self.conc_norm   = conc_norm     # float
+                 comp_min, comp_max, elec_onehot, conc_norm, max_elements=10):
+        super().__init__(n_var=10, n_obj=len(objectives), n_ieq_constr=1, xl=-3.0, xu=3.0)
+        self.objectives   = objectives
+        self.generator    = generator
+        self.regressors   = regressors
+        self.classifiers  = classifiers
+        self.comp_min     = comp_min
+        self.comp_max     = comp_max
+        self.elec_onehot  = elec_onehot
+        self.conc_norm    = conc_norm
+        self.max_elements = max_elements
 
     def _evaluate(self, x, out, *args, **kwargs):
         x_t = torch.tensor(x, dtype=torch.float32)
@@ -198,6 +199,10 @@ class AlloyProblem(Problem):
 
         out['F'] = np.column_stack([get_obj(o) for o in self.objectives])
 
+        # Inequality constraint: n_elements - max_elements <= 0 (pymoo: G <= 0 is feasible)
+        n_elements = (alloys39[:, :32] > 0.005).sum(axis=1).astype(float)
+        out['G'] = (n_elements - self.max_elements).reshape(-1, 1)
+
 
 def decode_results(res_X, generator, comp_min, comp_max, regressors,
                    classifiers, proc_names, elec_onehot, conc_norm):
@@ -215,9 +220,11 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
     cf = np.array([build_corr_features(alloys39[i], phase4[i], elec_onehot, conc_norm) for i in range(len(alloys39))])
 
     names = []
+    n_elements = []
     for comp in alloys39[:,:32]:
-        parts = [f"{ELEMENTS[j]}{round(comp[j],3)}" for j in range(32) if comp[j]>0.005]
+        parts = [f"{ELEMENTS[j]}{comp[j]:.3f}" for j in range(32) if comp[j] > 0.005]
         names.append("".join(parts))
+        n_elements.append(len(parts))
 
     proc_idx = np.argmax(alloys39[:,32:], axis=1)
     procs = [PROCESS_MAP.get(proc_names[i], "Unknown") for i in proc_idx]
@@ -233,6 +240,7 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 
     return pd.DataFrame({
         'Alloy Composition':      names,
+        'N Elements':             n_elements,
         'Processing Method':      procs,
         'Predicted Phase':        phases,
         'Hardness (HV)':          np.round(regressors['Hardness'].predict(mf),        2),
@@ -248,9 +256,9 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 
 def run_optimisation(objectives, pop_size, n_gen, seed, generator,
                      regressors, classifiers, comp_min, comp_max,
-                     proc_names, elec_onehot, conc_norm):
+                     proc_names, elec_onehot, conc_norm, max_elements=10):
     problem     = AlloyProblem(objectives, generator, regressors, classifiers,
-                               comp_min, comp_max, elec_onehot, conc_norm)
+                               comp_min, comp_max, elec_onehot, conc_norm, max_elements)
     algorithm   = NSGA2(pop_size=pop_size, mutation=PM(prob=0.1, eta=20))
     res = minimize(problem, algorithm, get_termination("n_gen", n_gen),
                    save_history=False, seed=int(seed), verbose=False)
@@ -302,7 +310,14 @@ with st.sidebar:
         ]), hide_index=True, use_container_width=True)
 
     st.divider()
-    pop_size = st.slider("Population Size", 10, 200, 50,  10)
+    st.subheader("🧪 Alloy Constraints")
+    max_elements = st.slider("Max number of elements", min_value=2, max_value=10, value=7,
+        help="Filter results to alloys with this many constituent elements or fewer. "
+             "Training data range: 2–10 elements (mean = 5.3). "
+             "4–7 elements is the most data-dense region.")
+
+    st.divider()
+    pop_size = st.slider("Population Size", 10, 200, 50, 10)
     n_gen    = st.slider("Generations",     10, 500, 200, 10)
     seed_val = st.number_input("Random Seed", 0, 9999, 2)
 
@@ -336,19 +351,20 @@ if run_btn and len(selected_objectives) >= 2:
         progress.progress(10, f"Pipeline A — NSGA-II ({n_gen} generations)…")
         result_A = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                     gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
-                                    elec_onehot, conc_norm)
+                                    elec_onehot, conc_norm, max_elements)
     if run_B:
         gen_B, reg_B, clf_B = load_pipeline("models_B")
         progress.progress(55 if run_A else 10, f"Pipeline B — NSGA-II ({n_gen} generations)…")
         result_B = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                     gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
-                                    elec_onehot, conc_norm)
+                                    elec_onehot, conc_norm, max_elements)
 
     progress.progress(100, "Done!")
     progress.empty()
     st.session_state.update({'result_A': result_A, 'result_B': result_B,
                               'objectives': selected_objectives,
-                              'electrolyte': selected_electrolyte, 'conc': selected_conc})
+                              'electrolyte': selected_electrolyte, 'conc': selected_conc,
+                              'max_elements': max_elements})
 
 # ── Display results ────────────────────────────────────────────────────────────
 if 'result_A' in st.session_state or 'result_B' in st.session_state:
@@ -390,14 +406,29 @@ if 'result_A' in st.session_state or 'result_B' in st.session_state:
 
     # Results tables
     st.divider()
+    max_el = st.session_state.get('max_elements', 10)
+
+    def clean(df):
+        return df.drop(columns=['N Elements']).reset_index(drop=True) if df is not None else None
+
     if both:
         t1, t2 = st.tabs(["Pipeline A", "Pipeline B"])
-        with t1: st.dataframe(result_A, use_container_width=True)
-        with t2: st.dataframe(result_B, use_container_width=True)
+        with t1:
+            st.caption(f"All {len(result_A)} alloys satisfy ≤ {max_el} elements constraint")
+            st.dataframe(clean(result_A), use_container_width=True)
+        with t2:
+            st.caption(f"All {len(result_B)} alloys satisfy ≤ {max_el} elements constraint")
+            st.dataframe(clean(result_B), use_container_width=True)
     elif result_A is not None:
-        st.subheader(f"Pipeline A — {len(result_A)} alloys"); st.dataframe(result_A, use_container_width=True)
+        st.subheader(f"Pipeline A — {len(result_A)} alloys")
+        st.caption(f"All alloys satisfy ≤ {max_el} elements constraint")
+        st.dataframe(clean(result_A), use_container_width=True)
     elif result_B is not None:
-        st.subheader(f"Pipeline B — {len(result_B)} alloys"); st.dataframe(result_B, use_container_width=True)
+        st.caption(f"Showing alloys with ≤ {max_el} elements — {len(res_B_disp)} of {len(result_B)} alloys")
+        st.subheader(f"Pipeline B — {len(res_B_disp)} alloys")
+        st.dataframe(res_B_disp, use_container_width=True)
+    st.caption("ℹ️ Training database contains alloys with 2–10 elements (mean = 5.3). "
+               "Predictions are most reliable in the 4–7 element range.")
 
     # Download
     st.divider()
