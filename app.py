@@ -407,12 +407,17 @@ with st.sidebar:
     banned_indices   = [ELEMENTS.index(e) for e in ELEMENTS if e not in allowed_elements]
     required_indices = [ELEMENTS.index(e) for e in required_elements]
 
-    if banned_indices:
-        st.caption(f"🚫 {len(banned_indices)} element(s) banned: {', '.join(e for e in ELEMENTS if e not in allowed_elements)}")
-    if required_indices:
-        st.caption(f"✅ At least one required: {', '.join(required_elements)}")
-    elif not banned_indices:
-        st.caption("No element constraints — all 32 elements allowed freely.")
+    if len(allowed_elements) == 0:
+        st.error("⚠️ No elements allowed — add at least one element to the pool.")
+    elif len(allowed_elements) < 2:
+        st.warning("⚠️ Only 1 element allowed — most alloy models require at least 2 elements.")
+    else:
+        if banned_indices:
+            st.caption(f"🚫 {len(banned_indices)} banned: {', '.join(e for e in ELEMENTS if e not in allowed_elements)}")
+        if required_indices:
+            st.caption(f"✅ At least one required: {', '.join(required_elements)}")
+        if not banned_indices and not required_indices:
+            st.caption("No element constraints — all 32 elements allowed freely.")
 
     st.divider()
     pop_size = st.slider("Population Size", 10, 200, 50, 10)
@@ -450,6 +455,38 @@ with st.expander("📊 Model R² performance summary", expanded=False):
 if run_btn and len(selected_objectives) >= 2:
     run_A = "A" in pipeline_choice
     run_B = "B" in pipeline_choice
+
+    # Pre-run validation of element constraints
+    if len(allowed_elements) == 0:
+        st.error("No elements allowed — please keep at least one element in the allowed pool.")
+        st.stop()
+
+    def post_filter(df):
+        """Remove any alloys that still contain banned elements above threshold.
+        pymoo can return least-infeasible candidates even when all solutions violate constraints."""
+        if df is None or len(banned_indices) == 0:
+            return df
+        comp_cols = [c for c in df.columns if c == 'Alloy Composition']
+        # Re-check element fractions directly from the composition string
+        mask = []
+        for name in df['Alloy Composition']:
+            ok = True
+            for idx in banned_indices:
+                el = ELEMENTS[idx]
+                if el in name:
+                    # parse fraction from e.g. "Al0.330Cr0.330Fe0.340" -> find "El0.XXX"
+                    try:
+                        pos = name.index(el) + len(el)
+                        frac = float(name[pos:pos+5])
+                        if frac > 0.005:
+                            ok = False
+                            break
+                    except (ValueError, IndexError):
+                        pass
+            mask.append(ok)
+        filtered = df[mask].reset_index(drop=True)
+        return filtered if len(filtered) > 0 else None
+
     progress = st.progress(0, "Starting optimisation…")
     result_A = result_B = None
 
@@ -462,8 +499,10 @@ if run_btn and len(selected_objectives) >= 2:
                                         gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
                                         elec_onehot, conc_norm, max_elements,
                                         banned_indices, required_indices)
+            result_A = post_filter(result_A)
             if result_A is None:
-                st.warning("Pipeline A: No feasible solutions found. Try increasing max elements or generations.")
+                st.warning("Pipeline A: No feasible solutions found. "
+                           "Try relaxing element constraints, increasing max elements, or more generations.")
         except Exception as e:
             st.error(f"Pipeline A failed: {e}")
 
@@ -475,8 +514,10 @@ if run_btn and len(selected_objectives) >= 2:
                                         gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
                                         elec_onehot, conc_norm, max_elements,
                                         banned_indices, required_indices)
+            result_B = post_filter(result_B)
             if result_B is None:
-                st.warning("Pipeline B: No feasible solutions found. Try increasing max elements or generations.")
+                st.warning("Pipeline B: No feasible solutions found. "
+                           "Try relaxing element constraints, increasing max elements, or more generations.")
         except Exception as e:
             st.error(f"Pipeline B failed: {e}")
 
