@@ -166,7 +166,9 @@ class AlloyProblem(Problem):
         x_t = torch.tensor(x, dtype=torch.float32)
         with torch.no_grad():
             raw = self.generator(x_t).numpy()
-        alloys39 = raw * self.comp_max + self.comp_min
+        # Generator outputs 39-dim; comp_min/max cover only the 32 element columns
+        alloys39 = raw.copy()
+        alloys39[:, :32] = raw[:, :32] * self.comp_max + self.comp_min
         n = len(alloys39)
 
         # Predict phases from composition (using 54-dim, no phase yet) then use as features
@@ -200,8 +202,9 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
                    classifiers, proc_names, elec_onehot, conc_norm):
     x_t = torch.tensor(res_X, dtype=torch.float32)
     with torch.no_grad():
-        alloys39 = generator(x_t).numpy()
-    alloys39 = alloys39 * comp_max + comp_min
+        raw = generator(x_t).numpy()
+    alloys39 = raw.copy()
+    alloys39[:, :32] = raw[:, :32] * comp_max + comp_min
     rs = alloys39[:,:32].sum(1,keepdims=True); rs[rs==0]=1; alloys39[:,:32] /= rs
 
     base54 = np.array([np.concatenate([a[:32], a[32:], calc_empirical_vector(a[:32])]) for a in alloys39])
