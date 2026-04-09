@@ -451,8 +451,8 @@ with st.sidebar:
 with st.expander("📊 Model R² performance summary", expanded=False):
     r2_data = {
         'Property':       ['Hardness','Yield Strength','Tensile','Elongation','Ecorr','Epit','icorr (log₁₀)'],
-        'Pipeline A R²':  [0.898, 0.771, 0.703, 0.644, 0.633, 0.873, 0.547],
-        'Pipeline B R²':  [0.984, 0.953, 0.963, 0.906, 0.915, 0.965, 0.860],
+        'Pipeline A R²':  [0.832, 0.638, 0.666, 0.440, 0.646, 0.761, 0.459],
+        'Pipeline B R²':  [0.832, 0.639, 0.668, 0.441, 0.629, 0.731, 0.393],
         'Features':       ['58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)','58 (32 element + 7 processing + 15 empirical + 4 phase)',
                            '58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration','58 features + 7 electrolyte + electrolyte concentration'],
         'Note':           ['Strongly influenced by processing route & phase',
@@ -464,8 +464,10 @@ with st.expander("📊 Model R² performance summary", expanded=False):
                            'Inherently noisy; log₁₀-scaled before training'],
     }
     st.dataframe(pd.DataFrame(r2_data), hide_index=True, use_container_width=True)
-    st.caption("Processing and electrolyte categorical features are encoded via one-hot encoding. "
-               "PBS and Hanks excluded (n<15). "
+    st.caption("R² from leakage-free 5-fold cross-validation — same protocol for both pipelines. "
+               "Pipeline B enables joint multi-property optimisation through MissForest imputation; "
+               "predictive accuracy is comparable to Pipeline A. "
+               "Processing and electrolyte features one-hot encoded. PBS and Hanks excluded (n<15). "
                "Matches Ghorbani et al. (2025) npj Materials Degradation.")
 
 # ── Run ────────────────────────────────────────────────────────────────────────
