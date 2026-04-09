@@ -213,10 +213,10 @@ class AlloyProblem(Problem):
         densities = (comp32_n * masses_a).sum(1) / (comp32_n * volumes_a).sum(1)
 
         def get_obj(name):
-            if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(mf)
-            if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(mf)
-            if name == 'Elongation':       return -self.regressors['Elongation'].predict(mf)
-            if name == 'Hardness':         return -self.regressors['Hardness'].predict(mf)
+            if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(cf)
+            if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(cf)
+            if name == 'Elongation':       return -self.regressors['Elongation'].predict(cf)
+            if name == 'Hardness':         return -self.regressors['Hardness'].predict(cf)
             if name == 'Ecorr':            return -self.regressors['Ecorr'].predict(cf)
             if name == 'Epit':             return -self.regressors['Epit'].predict(cf)
             if name == 'icorr':            return  self.regressors['icorr'].predict(cf)
@@ -319,10 +319,10 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
         'N Elements':             n_elements_list,
         'Processing Method':      procs,
         'Predicted Phase':        phases,
-        'Hardness (HV)':          np.round(regressors['Hardness'].predict(mf),        2),
-        'Tensile Strength (MPa)': np.round(regressors['Tensile Strength'].predict(mf),2),
-        'Yield Strength (MPa)':   np.round(regressors['Yield Strength'].predict(mf),  2),
-        'Elongation (%)':         np.round(regressors['Elongation'].predict(mf),      2),
+        'Hardness (HV)':          np.round(regressors['Hardness'].predict(cf),        2),
+        'Tensile Strength (MPa)': np.round(regressors['Tensile Strength'].predict(cf),2),
+        'Yield Strength (MPa)':   np.round(regressors['Yield Strength'].predict(cf),  2),
+        'Elongation (%)':         np.round(regressors['Elongation'].predict(cf),      2),
         'Ecorr (mV vs SCE)':      np.round(regressors['Ecorr'].predict(cf),           2),
         'Epit (mV vs SCE)':       np.round(regressors['Epit'].predict(cf),            2),
         'icorr (µA/cm²)':         np.round(icorr_vals,                                4),
