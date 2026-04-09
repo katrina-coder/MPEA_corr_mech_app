@@ -1,4 +1,4 @@
-Pipeline B — Leakage-free R² (nested imputation CV)
+Pipeline B — Leakage-free R² (nested 5-fold CV)
 Property                                  R²
 ---------------------------------------------
 Hardness                               0.832
