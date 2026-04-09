@@ -1,0 +1,10 @@
+Pipeline B — Leakage-free R² (nested imputation CV)
+Property                                  R²
+---------------------------------------------
+Hardness                               0.832
+Yield Strength                         0.639
+Ultimate Tensile Strength              0.668
+Elongation                             0.441
+Ecorr                                  0.629
+Epit                                   0.731
+icorr (log10)                          0.393
