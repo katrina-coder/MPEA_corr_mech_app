@@ -42,7 +42,7 @@ PROCESS_MAP = {
     'process_2': "Arc-melted + artificial aging",
     'process_3': "Arc-melted + annealing",
     'process_4': "Powder metallurgy",
-    'process_5': "Novel synthesis (ball milling etc.)",
+    'process_5': "Additive / laser / plasma / novel synthesis",
     'process_6': "Arc-melted + wrought processing",
     'process_7': "Cryogenic treatments",
 }

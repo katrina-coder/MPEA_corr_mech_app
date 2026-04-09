@@ -115,7 +115,7 @@ streamlit run app.py
 | **Approach** | Separate models per subset | Unified models on MissForest-imputed data |
 | **Imputation** | None | MissForest (IterativeImputer + RF, max_iter=5) |
 | **Training rows** | 334–951 per model | 2,323 (all rows) |
-| **R² evaluation** | 80/20 random split, 10 runs | Nested 5-fold CV (leakage-free) |
+| **R² evaluation** | 5-fold CV (same as Pipeline B) | 5-fold CV, nested imputation (leakage-free) |
 | **Best for** | Publication-quality benchmarking | Multi-objective optimisation |
 
 **icorr note:** The icorr model is trained on log₁₀(icorr) values.
