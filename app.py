@@ -169,7 +169,8 @@ def load_dataset_bounds():
 class AlloyProblem(Problem):
     def __init__(self, objectives, generator, regressors, classifiers,
                  comp_min, comp_max, elec_onehot, conc_norm,
-                 max_elements=10, banned_indices=None, required_indices=None):
+                 max_elements=10, banned_indices=None, required_indices=None,
+                 pipeline='B'):
         # n_ieq_constr:
         #   1  (max elements)
         #   +1 per banned element
@@ -181,6 +182,7 @@ class AlloyProblem(Problem):
         super().__init__(n_var=10, n_obj=len(objectives), n_ieq_constr=n_constr, xl=-3.0, xu=3.0)
         self.objectives       = objectives
         self.generator        = generator
+        self.pipeline         = pipeline
         self.regressors       = regressors
         self.classifiers      = classifiers
         self.comp_min         = comp_min
@@ -213,10 +215,13 @@ class AlloyProblem(Problem):
         densities = (comp32_n * masses_a).sum(1) / (comp32_n * volumes_a).sum(1)
 
         def get_obj(name):
-            if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(cf)
-            if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(cf)
-            if name == 'Elongation':       return -self.regressors['Elongation'].predict(cf)
-            if name == 'Hardness':         return -self.regressors['Hardness'].predict(cf)
+            # Pipeline A: mechanical regressors trained on 58-dim mf
+            # Pipeline B: all regressors trained on 66-dim cf
+            mech_feat = mf if self.pipeline == 'A' else cf
+            if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(mech_feat)
+            if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(mech_feat)
+            if name == 'Elongation':       return -self.regressors['Elongation'].predict(mech_feat)
+            if name == 'Hardness':         return -self.regressors['Hardness'].predict(mech_feat)
             if name == 'Ecorr':            return -self.regressors['Ecorr'].predict(cf)
             if name == 'Epit':             return -self.regressors['Epit'].predict(cf)
             if name == 'icorr':            return  self.regressors['icorr'].predict(cf)
@@ -253,7 +258,8 @@ class AlloyProblem(Problem):
 
 
 def decode_results(res_X, generator, comp_min, comp_max, regressors,
-                   classifiers, proc_names, elec_onehot, conc_norm):
+                   classifiers, proc_names, elec_onehot, conc_norm,
+                   pipeline='B'):
     # FIX BUG 4: ensure res_X is always 2D for batch generator input
     res_X = np.atleast_2d(res_X)
 
@@ -296,6 +302,7 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
     densities = (c32 * ma).sum(1) / (c32 * va).sum(1)
 
     icorr_vals = np.clip(10 ** regressors['icorr'].predict(cf), 0, 1e6)
+    mech_feat = mf if pipeline == 'A' else cf
     phase_lbls = ['FCC','BCC','HCP','IM']
 
     # Get probabilities for display and scatter (predict_proba[:,1] = probability of presence)
@@ -319,10 +326,10 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
         'N Elements':             n_elements_list,
         'Processing Method':      procs,
         'Predicted Phase':        phases,
-        'Hardness (HV)':          np.round(regressors['Hardness'].predict(cf),        2),
-        'Tensile Strength (MPa)': np.round(regressors['Tensile Strength'].predict(cf),2),
-        'Yield Strength (MPa)':   np.round(regressors['Yield Strength'].predict(cf),  2),
-        'Elongation (%)':         np.round(regressors['Elongation'].predict(cf),      2),
+        'Hardness (HV)':          np.round(regressors['Hardness'].predict(mech_feat),        2),
+        'Tensile Strength (MPa)': np.round(regressors['Tensile Strength'].predict(mech_feat),2),
+        'Yield Strength (MPa)':   np.round(regressors['Yield Strength'].predict(mech_feat),  2),
+        'Elongation (%)':         np.round(regressors['Elongation'].predict(mech_feat),      2),
         'Ecorr (mV vs SCE)':      np.round(regressors['Ecorr'].predict(cf),           2),
         'Epit (mV vs SCE)':       np.round(regressors['Epit'].predict(cf),            2),
         'icorr (µA/cm²)':         np.round(icorr_vals,                                4),
@@ -339,10 +346,12 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 def run_optimisation(objectives, pop_size, n_gen, seed, generator,
                      regressors, classifiers, comp_min, comp_max,
                      proc_names, elec_onehot, conc_norm,
-                     max_elements=10, banned_indices=None, required_indices=None):
+                     max_elements=10, banned_indices=None, required_indices=None,
+                     pipeline='B'):
     problem   = AlloyProblem(objectives, generator, regressors, classifiers,
                               comp_min, comp_max, elec_onehot, conc_norm,
-                              max_elements, banned_indices, required_indices)
+                              max_elements, banned_indices, required_indices,
+                              pipeline=pipeline)
     algorithm = NSGA2(pop_size=pop_size, mutation=PM(prob=0.1, eta=20))
     res = minimize(problem, algorithm, get_termination("n_gen", n_gen),
                    save_history=False, seed=int(seed), verbose=False)
@@ -352,7 +361,8 @@ def run_optimisation(objectives, pop_size, n_gen, seed, generator,
         return None
 
     return decode_results(res.X, generator, comp_min, comp_max,
-                          regressors, classifiers, proc_names, elec_onehot, conc_norm)
+                          regressors, classifiers, proc_names, elec_onehot, conc_norm,
+                          pipeline=pipeline)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -517,7 +527,8 @@ if run_btn and len(selected_objectives) >= 2:
             result_A = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                         gen_A, reg_A, clf_A, comp_min, comp_max, proc_names,
                                         elec_onehot, conc_norm, max_elements,
-                                        banned_indices, required_indices)
+                                        banned_indices, required_indices,
+                                        pipeline='A')
             result_A = post_filter(result_A)
             if result_A is None:
                 st.warning("Pipeline A: No feasible solutions found. "
@@ -532,7 +543,8 @@ if run_btn and len(selected_objectives) >= 2:
             result_B = run_optimisation(selected_objectives, pop_size, n_gen, seed_val,
                                         gen_B, reg_B, clf_B, comp_min, comp_max, proc_names,
                                         elec_onehot, conc_norm, max_elements,
-                                        banned_indices, required_indices)
+                                        banned_indices, required_indices,
+                                        pipeline='B')
             result_B = post_filter(result_B)
             if result_B is None:
                 st.warning("Pipeline B: No feasible solutions found. "
