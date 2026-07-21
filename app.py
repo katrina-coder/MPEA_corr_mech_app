@@ -546,7 +546,7 @@ with st.sidebar:
     st.divider()
     st.subheader("🌊 Test Environment")
     selected_electrolyte = st.selectbox("Electrolyte", ELECTROLYTES, index=0,
-        help="Electrolyte used in corrosion testing — included as a model feature")
+        help="Electrolyte used in corrosion testing")
     selected_conc = st.number_input("Concentration (M)", min_value=0.05,
         max_value=6.0, value=0.6, step=0.05,
         help="Electrolyte molar concentration (0.05–6 M)")
@@ -571,8 +571,7 @@ with st.sidebar:
     st.divider()
     st.subheader("🧪 Alloy Constraints")
     max_elements = st.slider("Max number of elements", min_value=2, max_value=10, value=7,
-        help="Enforced as an NSGA-II inequality constraint — all returned alloys satisfy this. "
-             f"An element counts as present above {TRACE_THRESHOLD:.3f} molar fraction. "
+        help=f"An element counts as present above {TRACE_THRESHOLD:.3f} molar fraction. "
              "Training data: 2–10 elements (mean = 5.3). Most reliable range: 4–7.")
 
     allowed_elements = st.multiselect(
@@ -587,8 +586,7 @@ with st.sidebar:
         options=allowed_elements if allowed_elements else ELEMENTS,
         default=[],
         help=f"Optional. Every element selected here MUST appear (> {TRACE_THRESHOLD:.3f} mol "
-             "fraction) in every optimised alloy — e.g. select Al and Fe to guarantee both are "
-             "present. Leave empty to impose no requirement.")
+             "fraction) in every optimised alloy. Leave empty to impose no requirement.")
 
     banned_indices   = [ELEMENTS.index(e) for e in ELEMENTS if e not in allowed_elements]
     required_indices = [ELEMENTS.index(e) for e in required_elements]
@@ -718,37 +716,9 @@ with st.expander("📊 Model performance summary", expanded=False):
         "the models currently on disk. Processing and electrolyte features are one-hot "
         "encoded; PBS and Hanks are excluded (n < 15). icorr is trained on log₁₀ and "
         "back-transformed for display.")
-    if 'C' in _shown:
-        st.caption(
-            "**Why Pipeline C's numbers may look slightly lower than A's:** C trains its "
-            "regressors on *predicted* phase labels — the same imperfect labels the app "
-            "supplies when you optimise. A trains on the database's true phase labels, "
-            "which the app never has. C's R² is therefore the one that reflects what you "
-            "actually get on a new alloy.")
-
     if len(phase_df):
         st.markdown("**Phase classifiers — why accuracy alone misleads**")
         st.dataframe(phase_df, hide_index=True, use_container_width=True)
-        st.caption(
-            "**Accuracy is the wrong score for a rare phase, and is shown only for "
-            "reference.** HCP appears in under 2% of alloys, so \"never predict HCP\" "
-            "already scores ~0.98 — accuracy is pinned near the baseline however good "
-            "the model is. The Verdict column therefore comes from ROC-AUC, not accuracy.")
-        st.caption(
-            "**ROC-AUC** — shown one alloy with the phase and one without, how often is the "
-            "right one ranked higher? 0.50 = coin flip, 0.90 = strong. "
-            "**AP vs chance** — how many times better than random guessing the model is at "
-            "surfacing that phase; anything above ~5x is a genuinely informative model. "
-            "**Balanced accuracy** — average of the hit rate on each class at the default "
-            "0.5 threshold; 0.50 = no skill. A rare-class model often has excellent ROC-AUC "
-            "but moderate balanced accuracy, because 0.5 is a conservative cut-off for a "
-            "class that rare. That combination is fine: the optimiser uses the continuous "
-            "probability, i.e. the ranking, not the 0/1 decision.")
-        st.caption(
-            "⚠️ Classifiers use `class_weight='balanced_subsample'`, which is what gives "
-            "the rare phases usable spread for optimisation. The trade-off: the reported "
-            "probabilities are **not calibrated** to the true base rate — treat them as a "
-            "relative ranking, not as literal likelihoods.")
     st.caption(
         "All phase classifiers take 54 features (element + processing + empirical). "
         "The phase columns are deliberately excluded from their own inputs, so these are "
