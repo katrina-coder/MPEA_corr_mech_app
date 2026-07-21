@@ -197,5 +197,6 @@
     "BCC",
     "HCP",
     "IM"
-  ]
+  ],
+  "max_concentration": 6.0
 }
