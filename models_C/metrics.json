@@ -1,0 +1,121 @@
+{
+  "pipeline": "C",
+  "description": "Stacked out-of-fold phase features, no imputation, 54-dim leakage-free phase classifiers.",
+  "regressors": {
+    "Hardness": {
+      "n": 951,
+      "cv_r2_mean": 0.8292416488602192,
+      "cv_r2_std": 0.03275982787406325,
+      "log_scale": false,
+      "model_path": "models_C/hardness_regressor.joblib"
+    },
+    "Yield Strength": {
+      "n": 647,
+      "cv_r2_mean": 0.6338845650430969,
+      "cv_r2_std": 0.03066723257385831,
+      "log_scale": false,
+      "model_path": "models_C/yield_regressor.joblib"
+    },
+    "Tensile": {
+      "n": 459,
+      "cv_r2_mean": 0.6552200451115938,
+      "cv_r2_std": 0.11275545549692371,
+      "log_scale": false,
+      "model_path": "models_C/tensile_regressor.joblib"
+    },
+    "Elongation": {
+      "n": 478,
+      "cv_r2_mean": 0.43415191849126256,
+      "cv_r2_std": 0.11983596153589489,
+      "log_scale": false,
+      "model_path": "models_C/elongation_regressor.joblib"
+    },
+    "Ecorr": {
+      "n": 596,
+      "cv_r2_mean": 0.6278237672230131,
+      "cv_r2_std": 0.057022631520413425,
+      "log_scale": false,
+      "model_path": "models_C/ecorr_regressor.joblib"
+    },
+    "Epit": {
+      "n": 327,
+      "cv_r2_mean": 0.7654664507522331,
+      "cv_r2_std": 0.029434180998771462,
+      "log_scale": false,
+      "model_path": "models_C/epit_regressor.joblib"
+    },
+    "icorr": {
+      "n": 575,
+      "cv_r2_mean": 0.43752535490465466,
+      "cv_r2_std": 0.08816234597392536,
+      "log_scale": true,
+      "model_path": "models_C/icorr_regressor.joblib"
+    }
+  },
+  "phase_classifiers": {
+    "FCC": {
+      "n": 2323,
+      "positive_rate": 0.5613430908308222,
+      "accuracy": 0.8893671975893241,
+      "majority_baseline": 0.5613430908308222,
+      "beats_baseline": true,
+      "balanced_accuracy": 0.8851563393679597,
+      "roc_auc": 0.9387620637338423,
+      "average_precision": 0.9338238875678083,
+      "model_path": "models_C/FCC_classifier.joblib"
+    },
+    "BCC": {
+      "n": 2323,
+      "positive_rate": 0.5553164012053379,
+      "accuracy": 0.8928110202324581,
+      "majority_baseline": 0.5553164012053379,
+      "beats_baseline": true,
+      "balanced_accuracy": 0.8908560150686268,
+      "roc_auc": 0.9435661916447164,
+      "average_precision": 0.947995734924989,
+      "model_path": "models_C/BCC_classifier.joblib"
+    },
+    "HCP": {
+      "n": 2323,
+      "positive_rate": 0.018510546706844596,
+      "accuracy": 0.9810589754627637,
+      "majority_baseline": 0.9814894532931554,
+      "beats_baseline": false,
+      "balanced_accuracy": 0.7393614851081192,
+      "roc_auc": 0.9055640554875561,
+      "average_precision": 0.5436022478049485,
+      "model_path": "models_C/HCP_classifier.joblib"
+    },
+    "IM": {
+      "n": 2323,
+      "positive_rate": 0.3172621609987086,
+      "accuracy": 0.8592337494619027,
+      "majority_baseline": 0.6827378390012915,
+      "beats_baseline": true,
+      "balanced_accuracy": 0.8210084508102614,
+      "roc_auc": 0.8967727281282456,
+      "average_precision": 0.8256030729630467,
+      "model_path": "models_C/IM_classifier.joblib"
+    }
+  },
+  "config": {
+    "n_estimators_reg": 100,
+    "n_estimators_clf": 100,
+    "min_samples_leaf": 1,
+    "class_weight": "balanced_subsample",
+    "n_folds": 5,
+    "random_state": 42,
+    "imputation": "none",
+    "phase_features": "out-of-fold predictions",
+    "concentration_fill": "per-electrolyte median",
+    "electrolyte_concentration_medians": {
+      "NaCl": 0.6,
+      "H2SO4": 0.5,
+      "Seawater": 0.55,
+      "HNO3": 2.07,
+      "NaOH": 1.32,
+      "HCl": 0.75,
+      "KOH": 1.0
+    }
+  }
+}
