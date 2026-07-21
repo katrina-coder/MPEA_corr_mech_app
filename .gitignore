@@ -1,4 +1,6 @@
-.DS_Store
 .venv/
+__pycache__/
+*.pyc
 ablation_results.csv
 imputed_csvs/
+.DS_Store
