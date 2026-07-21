@@ -3,8 +3,16 @@ Property                                  R²
 ---------------------------------------------
 Hardness                               0.832
 Yield Strength                         0.639
-Ultimate Tensile Strength              0.668
-Elongation                             0.441
-Ecorr                                  0.629
+Ultimate Tensile Strength              0.670
+Elongation                             0.440
+Ecorr                                  0.627
 Epit                                   0.731
-icorr (log10)                          0.393
+icorr (log10)                          0.398
+
+Phase classifiers — 54-dim features, stratified 5-fold CV
+Phase                                    Acc
+---------------------------------------------
+FCC                                    0.886
+BCC                                    0.889
+HCP                                    0.981
+IM                                     0.854
