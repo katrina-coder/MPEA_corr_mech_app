@@ -5,9 +5,8 @@ NSGAN framework extended to mechanical AND corrosion properties.
 Corrosion models include electrolyte type + concentration features
 matching Ghorbani et al. (2025) npj Materials Degradation.
 
-═══════════════════════════════════════════════════════════════════════════════
  BUG-FIX REVISION
-═══════════════════════════════════════════════════════════════════════════════
+
  FIX 1 — Phase-classifier target leakage
    The FCC/BCC/HCP/IM classifiers were trained on MECH_FEATURES (58-dim), which
    *includes* the four phase columns — so the FCC classifier had FCC itself as
@@ -52,7 +51,7 @@ matching Ghorbani et al. (2025) npj Materials Degradation.
    It is now read from each pipeline's metrics.json, alongside phase-classifier
    metrics that don't mislead on rare phases (balanced accuracy, ROC-AUC,
    average precision, and the majority-class baseline).
-═══════════════════════════════════════════════════════════════════════════════
+
 """
 
 import io, os, re, warnings, json
@@ -193,7 +192,6 @@ def calc_empirical_vector(comp32):
     return np.array([a_mean,delta,tm_mean,tm_std,entropy,enthalpy,enth_std,omega,xm,xs,vm,vs,km,ks,dens])
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  FEATURE BUILDERS
 #  ─────────────────────────────────────────────────────────────────────────────
 #  54-dim  base       = 32 element + 7 processing + 15 empirical
@@ -203,7 +201,6 @@ def calc_empirical_vector(comp32):
 #  66-dim  corrosion  = 58 mech + 7 electrolyte one-hot + 1 concentration
 #                       → corrosion regressors (both pipelines) and ALL
 #                         regressors in Pipeline B
-# ══════════════════════════════════════════════════════════════════════════════
 
 def build_base_features(alloy39):
     """54-dim classifier input. FIX 1 — deliberately contains NO phase flags."""
@@ -222,12 +219,11 @@ def build_corr_features(alloy39, phase4, elec_onehot_7, conc_norm):
                            elec_onehot_7, [conc_norm]])
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  COMPOSITION CANONICALISATION  (FIX 2)
 #  Called exactly once, in latent_to_alloys(). Everything downstream — the
 #  NSGA-II constraints, the RF feature vectors, the density, and the alloy name
 #  printed in the results table — reads the same canonical vector.
-# ══════════════════════════════════════════════════════════════════════════════
+
 
 def canonicalise_composition(comp32):
     """Normalise to sum 1 → drop trace elements → renormalise to sum 1."""
@@ -519,9 +515,9 @@ def run_optimisation(objectives, pop_size, n_gen, seed, generator,
                           elec_onehot, conc_norm, pipeline=pipeline)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 #  UI
-# ══════════════════════════════════════════════════════════════════════════════
+
 st.title("⚗️ MPEA Mechanical + Corrosion Generative Design")
 st.markdown("""
 Generates novel MPEAs optimised simultaneously for **mechanical** and **corrosion** properties
@@ -614,12 +610,12 @@ with st.sidebar:
     if len(selected_objectives) < 2:
         st.warning("Select at least 2 objectives.")
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 #  MODEL PERFORMANCE — read live from each pipeline's metrics.json
 #  Previously hard-coded, which meant the table silently went stale every time
 #  the models were retrained. Now whatever the training script measured is
 #  what the app displays.
-# ══════════════════════════════════════════════════════════════════════════════
+
 PIPELINE_COLOURS = {'A': '#1f77b4', 'B': '#ff7f0e', 'C': '#2ca02c'}
 
 LEGACY_R2 = {                      # fallback if a metrics.json is missing
@@ -724,9 +720,8 @@ with st.expander("📊 Model performance summary", expanded=False):
         "The phase columns are deliberately excluded from their own inputs, so these are "
         "genuine held-out scores — not the ~100% seen when a phase flag predicted itself.")
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  RUN
-# ══════════════════════════════════════════════════════════════════════════════
+
 ALLOY_TOKEN = re.compile(r'([A-Z][a-z]?)(\d+\.\d+)')
 
 if run_btn and len(selected_objectives) >= 2 and selected_pipelines:
@@ -782,9 +777,8 @@ if run_btn and len(selected_objectives) >= 2 and selected_pipelines:
                              'allowed_elements': allowed_elements,
                              'required_elements': required_elements})
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  DISPLAY RESULTS
-# ══════════════════════════════════════════════════════════════════════════════
+
 if st.session_state.get('results'):
     results    = st.session_state['results']
     objectives = st.session_state.get('objectives', [])
