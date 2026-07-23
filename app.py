@@ -39,6 +39,27 @@ matching Ghorbani et al. (2025) npj Materials Degradation.
    swallowed, making the banned-element safety net ineffective.
    → Now parses with a regex that respects element-symbol boundaries.
 
+ FIX 4 — Pipeline B mechanical predictions were electrolyte-dependent
+   B trains every regressor on the 66-dim matrix (incl. electrolyte one-hot +
+   concentration). Its REAL mechanical rows were trained with electrolyte = 0
+   (only imputed corrosion rows carried an electrolyte), yet the app fed a
+   non-zero electrolyte at inference — so B's Tensile/Yield/Hardness/Elongation
+   drifted with the electrolyte dropdown and extrapolated off the training
+   regime. A and C were unaffected (they use the 58-dim mechanical vector).
+   → For a mechanical property, Pipeline B now receives the 66-dim vector with
+     the electrolyte + concentration block zeroed (cf_mech0), matching how its
+     real mechanical rows were trained. Corrosion still uses the real
+     electrolyte (cf). A and C are unchanged.
+
+ FIX 5 — Download / robustness
+   (a) The downloaded Model_R2 / Phase_metrics sheets were built from the
+       current sidebar selection, so they could disagree with the results shown
+       if the selector changed after a run. They are now built from the
+       pipelines actually present in the results.
+   (b) load_dataset_bounds() now fails with a clear message if the workbook
+       can't be read (e.g. a Git LFS pointer served instead of the file),
+       rather than a blank page.
+
  PIPELINE C — wired in
    A third pipeline is now selectable. Its regressors are trained on PREDICTED
    (out-of-fold) phase labels rather than the database's true ones, so training
@@ -105,8 +126,9 @@ PIPELINE_LABELS = {
     'C': 'C — Stacked out-of-fold phases, no imputation',
 }
 # Which feature matrix the mechanical regressors expect.
-# A and C: 58-dim (mf). B: 66-dim (cf), because Pipeline B trains every
-# regressor on the full imputed 66-column matrix.
+# A and C: 58-dim (mf). B: 66-dim, because Pipeline B trains every regressor on
+# the full imputed 66-column matrix. For B, mechanical properties are scored
+# with the electrolyte block ZEROED (cf_mech0) — see FIX 4.
 MECH_USES_CORR_FEATURES = {'A': False, 'B': True, 'C': False}
 
 # Property keys as written by step2/step3/step4 into metrics.json
@@ -197,9 +219,9 @@ def calc_empirical_vector(comp32):
 #  54-dim  base       = 32 element + 7 processing + 15 empirical
 #                       → PHASE CLASSIFIERS         (FIX 1: no phase flags)
 #  58-dim  mechanical = 54 base + 4 predicted phase flags
-#                       → mechanical regressors (Pipeline A)
+#                       → mechanical regressors (Pipeline A / C)
 #  66-dim  corrosion  = 58 mech + 7 electrolyte one-hot + 1 concentration
-#                       → corrosion regressors (both pipelines) and ALL
+#                       → corrosion regressors (all pipelines) and ALL
 #                         regressors in Pipeline B
 
 def build_base_features(alloy39):
@@ -265,6 +287,19 @@ def featurise(alloys39, classifiers, elec_onehot, conc_norm):
     as the '<phase> probability' column in the results table, so the two can no
     longer disagree. phase4 (the hard 0/1 flags fed to the regressors as input
     features) is derived from the same probabilities.
+
+    Returns
+    -------
+    base54     : 54-dim classifier input (no phase flags)
+    phase_proba: P(phase) per class — objective AND reported column
+    phase4     : hard 0/1 phase flags (regressor input feature)
+    mf         : 58-dim mechanical vector (A / C)
+    cf         : 66-dim corrosion vector with the REAL electrolyte block
+    cf_mech0   : 66-dim vector with the electrolyte + concentration block ZEROED
+                 — Pipeline B's mechanical input (FIX 4). Matches how B's real
+                 mechanical rows were trained (electrolyte = 0), so B's
+                 mechanical predictions no longer drift with the electrolyte
+                 dropdown. Corrosion still uses cf (the real electrolyte).
     """
     base54 = np.array([build_base_features(a) for a in alloys39])
     phase_proba = np.column_stack(
@@ -275,10 +310,10 @@ def featurise(alloys39, classifiers, elec_onehot, conc_norm):
     phase4 = (phase_proba > 0.5).astype(float)
     mf = np.hstack([base54, phase4])
     n  = len(alloys39)
-    cf = np.hstack([mf,
-                    np.tile(np.asarray(elec_onehot, dtype=float), (n, 1)),
-                    np.full((n, 1), float(conc_norm))])
-    return base54, phase_proba, phase4, mf, cf
+    elec_block = np.tile(np.asarray(elec_onehot, dtype=float), (n, 1))
+    cf       = np.hstack([mf, elec_block, np.full((n, 1), float(conc_norm))])
+    cf_mech0 = np.hstack([mf, np.zeros((n, len(elec_onehot) + 1))])   # FIX 4
+    return base54, phase_proba, phase4, mf, cf, cf_mech0
 
 
 def alloy_densities(comp32):
@@ -328,7 +363,17 @@ def load_pipeline(model_dir):
 
 @st.cache_data
 def load_dataset_bounds():
-    df = pd.read_excel("MPEAs_Mech_Corr_DB_updated.xlsx")
+    # FIX 5b — a clear message if the workbook can't be read (e.g. a Git LFS
+    # pointer served instead of the real file) rather than a blank page.
+    try:
+        df = pd.read_excel("MPEAs_Mech_Corr_DB_updated.xlsx")
+    except Exception as e:
+        st.error(
+            "Could not read MPEAs_Mech_Corr_DB_updated.xlsx. If this repo tracks "
+            "*.xlsx with Git LFS, the host may have received a pointer file instead "
+            "of the workbook — remove *.xlsx from .gitattributes and re-commit the "
+            f"file. (underlying error: {e})")
+        st.stop()
     ELEM_COLS = ['Ag','Al','B','C','Ca','Co','Cr','Cu','Fe','Ga','Ge','Hf','Li','Mg','Mn','Mo','N','Nb','Nd','Ni','Pd','Re','Sc','Si','Sn','Ta','Ti','V','W','Y','Zn','Zr']
     PROCESS_COLS = ['process_1','process_2','process_3','process_4','process_5','process_6','process_7']
     comp = df[ELEM_COLS].to_numpy(dtype=float)
@@ -387,14 +432,14 @@ class AlloyProblem(Problem):
         alloys39 = latent_to_alloys(x, self.generator, self.comp_min, self.comp_max)
         comp32   = alloys39[:, :32]                 # already canonical, sums to 1
 
-        base54, phase_proba, phase4, mf, cf = featurise(
+        base54, phase_proba, phase4, mf, cf, cf_mech0 = featurise(
             alloys39, self.classifiers, self.elec_onehot, self.conc_norm)
         densities = alloy_densities(comp32)
 
+        # FIX 4 — B scores mechanical properties with electrolyte zeroed (cf_mech0)
+        mech_feat = cf_mech0 if MECH_USES_CORR_FEATURES.get(self.pipeline, False) else mf
+
         def get_obj(name):
-            # A and C: mechanical regressors trained on 58-dim mf
-            # B:       every regressor trained on the 66-dim imputed matrix
-            mech_feat = cf if MECH_USES_CORR_FEATURES.get(self.pipeline, False) else mf
             if name == 'Tensile Strength': return -self.regressors['Tensile Strength'].predict(mech_feat)
             if name == 'Yield Strength':   return -self.regressors['Yield Strength'].predict(mech_feat)
             if name == 'Elongation':       return -self.regressors['Elongation'].predict(mech_feat)
@@ -441,7 +486,7 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
     alloys39 = latent_to_alloys(res_X, generator, comp_min, comp_max)
     comp32   = alloys39[:, :32]
 
-    base54, phase_proba, phase4, mf, cf = featurise(
+    base54, phase_proba, phase4, mf, cf, cf_mech0 = featurise(
         alloys39, classifiers, elec_onehot, conc_norm)
 
     # Alloy name is now a straight readout of comp32 — no separate
@@ -460,7 +505,8 @@ def decode_results(res_X, generator, comp_min, comp_max, regressors,
 
     densities  = alloy_densities(comp32)
     icorr_vals = np.clip(10 ** regressors['icorr'].predict(cf), 0, 1e6)
-    mech_feat  = cf if MECH_USES_CORR_FEATURES.get(pipeline, False) else mf
+    # FIX 4 — B scores mechanical properties with electrolyte zeroed (cf_mech0)
+    mech_feat  = cf_mech0 if MECH_USES_CORR_FEATURES.get(pipeline, False) else mf
 
     # Phase label: list every phase predicted present; if none, name the most
     # probable one. Both branches read the same phase_proba used as objective.
@@ -866,13 +912,18 @@ if st.session_state.get('results'):
 
     # ── Download (includes all columns) ───────────────────────────────────────
     st.divider()
+    # FIX 5a — build the metrics sheets from the pipelines actually in `results`,
+    # not the current sidebar selection, so the download always matches the
+    # tables and Pareto fronts shown above.
+    run_r2_df    = build_r2_table(order)
+    run_phase_df = build_phase_table(order)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as w:
         for p in order:
             results[p].to_excel(w, sheet_name=f'Pipeline_{p}', index=False)
-        r2_df.to_excel(w, sheet_name='Model_R2', index=False)
-        if len(phase_df):
-            phase_df.to_excel(w, sheet_name='Phase_metrics', index=False)
+        run_r2_df.to_excel(w, sheet_name='Model_R2', index=False)
+        if len(run_phase_df):
+            run_phase_df.to_excel(w, sheet_name='Phase_metrics', index=False)
     buf.seek(0)
     st.download_button("⬇️ Download Excel (all results)", data=buf,
                        file_name="MPEA_mech_corr_optimised.xlsx",
